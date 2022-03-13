@@ -11,9 +11,8 @@
 #include <imtjson/namedEnum.h>
 #include <imtjson/object.h>
 #include "../shared/stringview.h"
-#include "invert_strategy.h"
-
 #include "sgn.h"
+#include "strategy_epa.h"
 #include "strategy_halfhalf.h"
 #include "strategy_keepvalue.h"
 #include "strategy_exponencial.h"
@@ -31,7 +30,6 @@
 #include "strategy_keepvalue2.h"
 #include "strategy_hodl_short.h"
 #include "strategy_incvalue.h"
-
 
 
 static json::NamedEnum<Strategy_Gamma::Function> strGammaFunction ({
@@ -63,9 +61,20 @@ void initConfig(Cfg &cfg, json::Value config,
 	cfg.reinvest_profit = config["reinvest_profit"].getValueOrDefault(false);
 }
 
-Strategy Strategy::create_base(std::string_view id, json::Value config) {
+Strategy Strategy::create(std::string_view id, json::Value config) {
 
-	if (id == Strategy_HalfHalf::id) {
+	if (id == Strategy_Epa::id) {
+		Strategy_Epa::Config cfg;
+		cfg.min_asset_perc_of_budget = config["min_asset_perc_of_budget"].getNumber();
+		cfg.initial_bet_perc_of_budget = config["initial_bet_perc_of_budget"].getNumber();
+		cfg.max_enter_price_distance = config["max_enter_price_distance"].getNumber();
+		cfg.power_mult = config["power_mult"].getNumber();
+		cfg.power_cap = config["power_cap"].getNumber();
+		cfg.angle = config["angle"].getNumber();
+		cfg.target_exit_price_distance = config["target_exit_price_distance"].getNumber();
+		cfg.exit_power_mult = config["exit_power_mult"].getNumber();
+		return Strategy(new Strategy_Epa(cfg));
+	} else if (id == Strategy_HalfHalf::id) {
 		Strategy_HalfHalf::Config cfg;
 		cfg.ea = config["ea"].getNumber();
 		cfg.accum = config["accum"].getNumber();
@@ -201,17 +210,6 @@ Strategy Strategy::create_base(std::string_view id, json::Value config) {
 	}
 
 }
-
-Strategy Strategy::invert() const {
-	return Strategy(new InvertStrategy(ptr));
-}
-
-Strategy Strategy::create(std::string_view id, json::Value config) {
-	Strategy s = create_base(id, config);
-	if (config["invert_proxy"].getBool()) return s.invert();
-	else return s;
-}
-
 
 json::Value Strategy::exportState() const {
 	return json::Object({{ptr->getID(), ptr->exportState()}});

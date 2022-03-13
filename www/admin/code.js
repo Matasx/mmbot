@@ -98,6 +98,7 @@ App.prototype.createTraderForm = function() {
 	var pl = form.findElements("goal_pl")[0];
 	form.dlgRules = function() {
 		var state = this.readData(["strategy","advanced","check_unsupp"]);
+		form.showItem("strategy_epa",state.strategy == "enter_price_angle");
 		form.showItem("strategy_halfhalf",state.strategy == "halfhalf" || state.strategy == "keepvalue" || state.strategy == "exponencial"||state.strategy == "hypersquare"||state.strategy == "conststep");
 		form.showItem("strategy_pl",state.strategy == "plfrompos");
 		form.showItem("strategy_pile",state.strategy == "pile");
@@ -519,7 +520,7 @@ App.prototype.fillForm = function (src, trg) {
 			"shg_w","shg_p","shg_z","shg_lp","shg_offset",
 			"pile_ratio","hodlshort_z",
 			"incval_w","incval_z",
-			"invert_proxy"
+			"initial_bet_perc_of_budget"
 			]
 			.forEach(function(item){
 				trg.findElements(item).forEach(function(elem){
@@ -533,7 +534,6 @@ App.prototype.fillForm = function (src, trg) {
 			data.vis_spread = {"!click": this.init_spreadvis.bind(this, trg, src.id), ".disabled":false};
 			data.show_backtest= {"!click": this.init_backtest.bind(this, trg, src.id, src.pair_symbol, src.broker), ".disabled":false};
 			data.inverted_price=pair.invert_price?"true":"false";
-			data.show_invert_proxy = {".hidden":!pair.leverage};
 			var tmp = trg.readData(["cstep","max_pos","shg_lp","shg_offset"]);
 			if (!src.strategy && typeof state.pair.price == "string" && state.pair.price.startsWith("trainer")){
 			    this.brokerConfig(this.pairURL(broker.name, src.pair_symbol)+"/settings").then(updateHdr,updateHdr);
@@ -677,10 +677,26 @@ App.prototype.fillForm = function (src, trg) {
 	data.incval_r = 100;
 	data.incval_ms = 0;
 	data.incval_ri = false;
+	data.min_asset_perc_of_budget = 0.1;
+	data.initial_bet_perc_of_budget = 1;
+	data.max_enter_price_distance = 3;
+	data.power_mult = 1;
+	data.power_cap = 1;
+	data.angle = 35;
+	data.target_exit_price_distance = 1;
+	data.exit_power_mult = 1;
 
 
-	
-	if (data.strategy == "halfhalf" || data.strategy == "keepvalue" || data.strategy == "exponencial"|| data.strategy == "hypersquare"||data.strategy == "conststep") {
+	if (data.strategy == "enter_price_angle") {
+		data.min_asset_perc_of_budget = filledval(defval(src.strategy.min_asset_perc_of_budget,0.001)*100,0.1);
+		data.initial_bet_perc_of_budget = filledval(defval(src.strategy.initial_bet_perc_of_budget,0.01)*100,1);
+		data.max_enter_price_distance = filledval(defval(src.strategy.max_enter_price_distance,0.03)*100,3);
+		data.power_mult = filledval(src.strategy.power_mult,1);
+		data.power_cap = filledval(src.strategy.power_cap,1);
+		data.angle = filledval(src.strategy.angle,35);
+		data.target_exit_price_distance = filledval(defval(src.strategy.target_exit_price_distance,0.01)*100,1);
+		data.exit_power_mult = filledval(src.strategy.exit_power_mult,1);
+	}	else if (data.strategy == "halfhalf" || data.strategy == "keepvalue" || data.strategy == "exponencial"|| data.strategy == "hypersquare"||data.strategy == "conststep") {
 		data.acum_factor = filledval(defval(src.strategy.accum,0)*100,0);
 		data.external_assets = filledval(src.strategy.ea,0);
 		data.kv_valinc = filledval(src.strategy.valinc,0);
@@ -767,7 +783,6 @@ App.prototype.fillForm = function (src, trg) {
 	};
 	data.enabled = src.enabled;
 	data.hidden = !!src.hidden;	
-	data.invert_proxy = filledval(!!(src.strategy && src.strategy.invert_proxy),false);
 	data.accept_loss = filledval(src.accept_loss,0);
 	data.grant_trade_hours= filledval(src.grant_trade_hours,0);
 	data.spread_calc_stdev_hours = filledval(src.spread_calc_stdev_hours,4);
@@ -869,7 +884,19 @@ App.prototype.fillForm = function (src, trg) {
 function getStrategyData(data, inv) {
 	var strategy = {};
 	strategy.type = data.strategy;
-	if (data.strategy == "halfhalf" || data.strategy == "keepvalue" || data.strategy == "exponencial"|| data.strategy == "hypersquare"||data.strategy == "conststep") {
+	if (data.strategy == "enter_price_angle") {
+		strategy = {
+			type: data.strategy,
+			min_asset_perc_of_budget: data.min_asset_perc_of_budget/100.0,
+			initial_bet_perc_of_budget: data.initial_bet_perc_of_budget/100.0,
+			max_enter_price_distance: data.max_enter_price_distance/100.0,
+			power_mult: data.power_mult,
+			power_cap: data.power_cap,
+			angle: data.angle,
+			target_exit_price_distance: data.target_exit_price_distance/100.0,
+			exit_power_mult: data.exit_power_mult
+		};
+	} else if (data.strategy == "halfhalf" || data.strategy == "keepvalue" || data.strategy == "exponencial"|| data.strategy == "hypersquare"||data.strategy == "conststep") {
 		strategy.accum = data.acum_factor/100.0;
 		strategy.ea = data.external_assets;
 		strategy.valinc = data.kv_valinc;
@@ -978,7 +1005,6 @@ function getStrategyData(data, inv) {
 				keep_max: data.kb_keep_min > data.kb_keep_max?data.kb_keep_min:data.kb_keep_max
 		};
 	}
-	strategy.invert_proxy = data.invert_proxy;
 	return strategy;
 }
 
@@ -1908,14 +1934,13 @@ App.prototype.init_backtest = function(form, id, pair, broker) {
 		"gs_external_assets","gs_rb_hi_a","gs_rb_lo_a","gs_rb_hi_p","gs_rb_lo_p",
 		"min_balance","max_balance","max_leverage","reduce_on_leverage","gamma_exp","gamma_rebalance","gamma_trend","gamma_fn","gamma_reinvest","gamma_maxrebal",
 		"pincome_exp",
-		"invert_proxy",
 		"hodlshort_z","hodlshort_acc","hodlshort_rinvst","hodlshort_b",
 		"pile_accum","pile_ratio",
 		"kv2_accum","kv2_boost","kv2_chngtm","kv2_reinvest",
 		"incval_w","incval_r","incval_ms","incval_ri","incval_z",
 		"hedge_short","hedge_long","hedge_drop",
 		"shg_w","shg_p","shg_z","shg_b","shg_olt","shg_ol","shg_lp","shg_rnv","shg_avgsp","shg_boostmode","shg_lazyopen","shg_lazyclose","shg_offset",
-		"trade_within_budget"];
+		"trade_within_budget","min_asset_perc_of_budget","min_asset_perc_of_budget","initial_bet_perc_of_budget","max_enter_price_distance","power_mult","power_cap","angle","target_exit_price_distance","exit_power_mult"];
 	var spread_inputs = ["spread_calc_stdev_hours","secondary_order", "spread_calc_sma_hours","spread_mult","dynmult_raise","dynmult_fall","dynmult_mode","dynmult_sliding","dynmult_cap","dynmult_mult","force_spread","spread_mode","spread_freeze"];
 	var leverage = form._pair.leverage != 0;	
 	var pairinfo = form._pair;
@@ -1980,7 +2005,6 @@ App.prototype.init_backtest = function(form, id, pair, broker) {
 		var last_dir = 0;
 		var lastp = v[0].pr;
 		var init_price = invPrice(v[0].pr, invert_price);
-		var init_bp = v[0].bal/init_price;
 
 		var c = [];
 		var ilst,acp = false;
@@ -1995,7 +2019,7 @@ App.prototype.init_backtest = function(form, id, pair, broker) {
 				    c.push(ilst);
 					ilst = null;
 				}
-				x.plb = x.bal/npr-init_bp;
+				x.plb = x.pl/npr;
 				x.nplb = x.npl/npr;
 				c.push(x);				
 			} else {

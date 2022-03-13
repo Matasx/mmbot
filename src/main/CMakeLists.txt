@@ -13,6 +13,7 @@ add_executable (mmbot
 	webcfg.cpp	
 	traders.cpp
 	strategy.cpp
+	strategy_epa.cpp
 	strategy_halfhalf.cpp
 	strategy_constantstep.cpp
 	strategy_keepvalue.cpp
@@ -30,7 +31,6 @@ add_executable (mmbot
 	strategy_hedge.cpp
 	strategy_pile.cpp
 	strategy_incvalue.cpp
-	invert_strategy.cpp
 	simulator.cpp
 	localdailyperfmod.cpp
 	extdailyperfmod.cpp
